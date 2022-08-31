@@ -47,5 +47,55 @@ contract SafeTeller {
         fallbackHandlerAddress = _fallbackHanderAddress;
     }
 
+    /**
+     * @param _safe The address of the safe
+     * @param _newSafeTeller The address of the new safe teller contract
+     */
+    function migrateSafeTeller(
+        address _safe,
+        address _newSafeTeller,
+        address _prevModule
+    ) internal {
+        // add new safeTeller
+        bytes memory enableData = abi.encodeWithSignature(
+            "enableModule(address)",
+            _newSafeTeller
+        );
+
+        bool enableSuccess = IGnosisSafe(_safe).execTransactionFromModule(
+            _safe,
+            0,
+            enableData,
+            IGnosisSafe.Operation.Call
+        );
+        require(enableSuccess, "Migration failed on enable");
+
+        // validate prevModule of current safe teller
+        (address[] memory moduleBuffer, ) = IGnosisSafe(_safe)
+            .getModulesPaginated(_prevModule, 1);
+        require(moduleBuffer[0] == address(this), "incorrect prevModule");
+
+        // disable current safeTeller
+        bytes memory disableData = abi.encodeWithSignature(
+            "disableModule(address,address)",
+            _prevModule,
+            address(this)
+        );
+
+        bool disableSuccess = IGnosisSafe(_safe).execTransactionFromModule(
+            _safe,
+            0,
+            disableData,
+            IGnosisSafe.Operation.Call
+        );
+        require(disableSuccess, "Migration failed on disable");
+    }
+
     
+    
+    function enableModule(address module) external {
+        require(module == address(0));
+    }
+
+   
 }
