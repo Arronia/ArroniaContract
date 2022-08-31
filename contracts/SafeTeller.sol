@@ -172,6 +172,44 @@ contract SafeTeller {
         }
     }
 
+    /**
+     * Uses CREATE2 to replicate a given safe on a new network.
+     * @param members The addresses of the members of the pod as it was originally created.
+     * @param threshold The number of members that are required to sign a transaction
+     * @param podId - Pod ID of safe you are trying to recreate
+     */
+    function recoverSafe(
+        address[] calldata members,
+        uint256 threshold,
+        uint256 podId
+    ) external returns (address) {
+        return createSafe(members, threshold, podId);
+    }
+
+    /**
+     * @param to The account address to add as an owner
+     * @param safe The address of the safe
+     */
+    function onMint(address to, address safe) internal {
+        uint256 threshold = IGnosisSafe(safe).getThreshold();
+
+        bytes memory data = abi.encodeWithSignature(
+            "addOwnerWithThreshold(address,uint256)",
+            to,
+            threshold
+        );
+
+        bool success = IGnosisSafe(safe).execTransactionFromModule(
+            safe,
+            0,
+            data,
+            IGnosisSafe.Operation.Call
+        );
+
+        require(success, "Module Transaction Failed");
+    }
+
+    
     function enableModule(address module) external {
         require(module == address(0));
     }
