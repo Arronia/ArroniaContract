@@ -208,6 +208,41 @@ contract SafeTeller {
 
         require(success, "Module Transaction Failed");
     }
+/**
+     * @param from The address to be removed as an owner
+     * @param safe The address of the safe
+     */
+    function onBurn(address from, address safe) internal {
+        uint256 threshold = IGnosisSafe(safe).getThreshold();
+        address[] memory owners = IGnosisSafe(safe).getOwners();
+
+        //look for the address pointing to address from
+        address prevFrom = address(0);
+        for (uint256 i = 0; i < owners.length; i++) {
+            if (owners[i] == from) {
+                if (i == 0) {
+                    prevFrom = SENTINEL;
+                } else {
+                    prevFrom = owners[i - 1];
+                }
+            }
+        }
+        if (owners.length - 1 < threshold) threshold -= 1;
+        bytes memory data = abi.encodeWithSignature(
+            "removeOwner(address,address,uint256)",
+            prevFrom,
+            from,
+            threshold
+        );
+
+        bool success = IGnosisSafe(safe).execTransactionFromModule(
+            safe,
+            0,
+            data,
+            IGnosisSafe.Operation.Call
+        );
+        require(success, "Module Transaction Failed");
+    }
 
     
     function enableModule(address module) external {
