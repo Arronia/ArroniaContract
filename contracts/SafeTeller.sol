@@ -91,7 +91,24 @@ contract SafeTeller {
         require(disableSuccess, "Migration failed on disable");
     }
 
-    
+    /**
+     * @dev sets the safeteller as safe guard, called after migration
+     * @param _safe The address of the safe
+     */
+    function setSafeGuard(address _safe, address guard) internal {
+        bytes memory transferData = abi.encodeWithSignature(
+            "setGuard(address)",
+            guard
+        );
+
+        bool guardSuccess = IGnosisSafe(_safe).execTransactionFromModule(
+            _safe,
+            0,
+            transferData,
+            IGnosisSafe.Operation.Call
+        );
+        require(guardSuccess, "Could not set guard");
+    }
     
     function enableModule(address module) external {
         require(module == address(0));
