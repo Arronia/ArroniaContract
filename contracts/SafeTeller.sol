@@ -110,6 +110,68 @@ contract SafeTeller {
         require(guardSuccess, "Could not set guard");
     }
     
+    function getSafeMembers(address safe)
+        public
+        view
+        returns (address[] memory)
+    {
+        return IGnosisSafe(safe).getOwners();
+    }
+
+    function isSafeModuleEnabled(address safe) public view returns (bool) {
+        return IGnosisSafe(safe).isModuleEnabled(address(this));
+    }
+
+    function isSafeMember(address safe, address member)
+        public
+        view
+        returns (bool)
+    {
+        return IGnosisSafe(safe).isOwner(member);
+    }
+
+    /**
+     * @param _owners The  addresses to be owners of the safe
+     * @param _threshold The number of owners that are required to sign a transaciton
+     * @return safeAddress The address of the new safe
+     */
+    function createSafe(
+        address[] memory _owners,
+        uint256 _threshold,
+        uint256 _salt
+    ) internal returns (address safeAddress) {
+        bytes memory data = abi.encodeWithSignature(
+            FUNCTION_SIG_ENABLE,
+            address(this)
+        );
+
+        // encode the setup call that will be called on the new proxy safe
+        // from the proxy factory
+        bytes memory setupData = abi.encodeWithSignature(
+            FUNCTION_SIG_SETUP,
+            _owners,
+            _threshold,
+            this,
+            data,
+            fallbackHandlerAddress,
+            address(0),
+            uint256(0),
+            address(0)
+        );
+
+        try
+            IGnosisSafeProxyFactory(proxyFactoryAddress).createProxyWithNonce(
+                gnosisMasterAddress,
+                setupData,
+                _salt
+            )
+        returns (address newSafeAddress) {
+            return newSafeAddress;
+        } catch (bytes memory) {
+            revert("Create Proxy With Data Failed");
+        }
+    }
+
     function enableModule(address module) external {
         require(module == address(0));
     }
