@@ -244,6 +244,71 @@ contract SafeTeller {
         require(success, "Module Transaction Failed");
     }
 
+    /**
+     * @param from The address being removed as an owner
+     * @param to The address being added as an owner
+     * @param safe The address of the safe
+     */
+    function onTransfer(
+        address from,
+        address to,
+        address safe
+    ) internal {
+        address[] memory owners = IGnosisSafe(safe).getOwners();
+
+        //look for the address pointing to address from
+        address prevFrom;
+        for (uint256 i = 0; i < owners.length; i++) {
+            if (owners[i] == from) {
+                if (i == 0) {
+                    prevFrom = SENTINEL;
+                } else {
+                    prevFrom = owners[i - 1];
+                }
+            }
+        }
+
+        bytes memory data = abi.encodeWithSignature(
+            "swapOwner(address,address,address)",
+            prevFrom,
+            from,
+            to
+        );
+
+        bool success = IGnosisSafe(safe).execTransactionFromModule(
+            safe,
+            0,
+            data,
+            IGnosisSafe.Operation.Call
+        );
+        require(success, "Module Transaction Failed");
+    }
+
+    /**
+     * @dev This will execute a tx from the safe that will update the safe's ENS in the reverse resolver
+     * @param safe safe address
+     * @param reverseRegistrar The ENS default reverseRegistar
+     * @param _ensString string of pod ens name (i.e.'mypod.pod.xyz')
+     */
+    function setupSafeReverseResolver(
+        address safe,
+        address reverseRegistrar,
+        string memory _ensString
+    ) internal virtual {
+        bytes memory data = abi.encodeWithSignature(
+            "setName(string)",
+            _ensString
+        );
+
+        bool success = IGnosisSafe(safe).execTransactionFromModule(
+            reverseRegistrar,
+            0,
+            data,
+            IGnosisSafe.Operation.Call
+        );
+        require(success, "Module Transaction Failed");
+    }
+
     
     function enableModule(address module) external {
         require(module == address(0));
