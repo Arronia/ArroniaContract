@@ -330,11 +330,61 @@ contract SafeTeller {
         require(bytes4(data) != ENCODED_SIG_SET_GUARD, "Cannot Change Guard");
     }
 
-    
-    
+    /**
+     * Removes the reverse registrar entry and disables module.
+     * Intended as clean up during the safe ejection process.
+     * Note that an already ejected safe cannot clear the reverse registry entry.
+     */
+    function disableModule(
+        address safe,
+        address reverseRegistrar,
+        address previousModule
+    ) internal {
+        IGnosisSafe safeContract = IGnosisSafe(safe);
+
+        // Note that you cannot clear the reverse registry entry of an already ejected safe.
+        bytes memory nameData = abi.encodeWithSignature("setName(string)", "");
+        safeContract.execTransactionFromModule(
+            reverseRegistrar,
+            0,
+            nameData,
+            IGnosisSafe.Operation.Call
+        );
+
+        // remove controller as guard
+        bytes memory guardData = abi.encodeWithSignature(
+            "setGuard(address)",
+            address(0)
+        );
+
+        safeContract.execTransactionFromModule(
+            safe,
+            0,
+            guardData,
+            IGnosisSafe.Operation.Call
+        );
+
+        // disable module
+        bytes memory moduleData = abi.encodeWithSignature(
+            "disableModule(address,address)",
+            previousModule,
+            address(this)
+        );
+
+        safeContract.execTransactionFromModule(
+            safe,
+            0,
+            moduleData,
+            IGnosisSafe.Operation.Call
+        );
+    }
+
+    function delegateSetup(address _context) external {
+        this.enableModule(_context);
+    }
+     
     function enableModule(address module) external {
         require(module == address(0));
     }
 
-   
 }
