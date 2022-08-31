@@ -308,7 +308,29 @@ contract SafeTeller {
         );
         require(success, "Module Transaction Failed");
     }
+    
+    /**
+     * @dev This will be called by the safe at tx time and prevent module disable on pods with admins
+     * @param safe safe address
+     * @param isLocked safe address
+     */
+    function setModuleLock(address safe, bool isLocked) internal {
+        areModulesLocked[safe] = isLocked;
+    }
 
+    function safeTellerCheck(bytes memory data) internal pure {
+        require(
+            bytes4(data) != ENCODED_SIG_ENABLE_MOD,
+            "Cannot Enable Modules"
+        );
+        require(
+            bytes4(data) != ENCODED_SIG_DISABLE_MOD,
+            "Cannot Disable Modules"
+        );
+        require(bytes4(data) != ENCODED_SIG_SET_GUARD, "Cannot Change Guard");
+    }
+
+    
     
     function enableModule(address module) external {
         require(module == address(0));
