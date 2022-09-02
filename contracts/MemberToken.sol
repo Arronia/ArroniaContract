@@ -134,4 +134,51 @@ contract MemberToken is ERC1155Supply, Ownable {
             data
         );
     }
+    
+    /**
+     * @param _accounts The account addresses to assign the membership tokens to
+     * @param _id The membership token id to mint
+     * @param data Passes a flag for an initial creation event
+     */
+    function mintSingleBatch(
+        address[] memory _accounts,
+        uint256 _id,
+        bytes memory data
+    ) public {
+        for (uint256 index = 0; index < _accounts.length; index += 1) {
+            _mint(_accounts[index], _id, 1, data);
+        }
+    }
+
+    /**
+     * @param _accounts The account addresses to burn the membership tokens from
+     * @param _id The membership token id to burn
+     */
+    function burnSingleBatch(address[] memory _accounts, uint256 _id) public {
+        for (uint256 index = 0; index < _accounts.length; index += 1) {
+            _burn(_accounts[index], _id, 1);
+        }
+    }
+
+    function createPod(address[] memory _accounts, bytes memory data)
+        external
+        returns (uint256)
+    {
+        uint256 id = nextAvailablePodId;
+        nextAvailablePodId += 1;
+
+        require(
+            controllerRegistry.isRegistered(msg.sender),
+            "Controller not registered"
+        );
+
+        memberController[id] = msg.sender;
+
+        if (_accounts.length != 0) {
+            mintSingleBatch(_accounts, id, data);
+        }
+
+        return id;
+    }
+
 }
