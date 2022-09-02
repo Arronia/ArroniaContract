@@ -249,4 +249,188 @@ contract Controller is
 
         emit UpdatePodAdmin(_podId, _newAdmin);
     }
+    /**
+     * @param _podId The id number of the pod
+     * @param _isTransferLocked The address of the new pod admin
+     */
+    function setPodTransferLock(uint256 _podId, bool _isTransferLocked)
+        external
+        override
+    {
+        address admin = podAdmin[_podId];
+        address safe = podIdToSafe[_podId];
+
+        // if no pod admin it can only be set by safe
+        if (admin == address(0)) {
+            require(msg.sender == safe, "Only safe can set transfer lock");
+        } else {
+            // if admin then it can be set by admin or safe
+            require(
+                msg.sender == admin || msg.sender == safe,
+                "Only admin or safe can set transfer lock"
+            );
+        }
+
+        // set podid to transfer lock bool
+        isTransferLocked[_podId] = _isTransferLocked;
+    }
+
+    /**
+     * @dev This will nullify all pod state on this controller
+     * @dev Update state on _newController
+     * @dev Update controller to _newController in Safe and MemberToken
+     * @param _podId The id number of the pod
+     * @param _newController The address of the new pod controller
+     * @param _prevModule The module that points to the orca module in the safe's ModuleManager linked list
+     */
+    function migratePodController(
+        uint256 _podId,
+        address _newController,
+        address _prevModule
+    ) external override {
+        require(_newController != address(0), "Invalid address");
+        require(
+            _newController != address(this),
+            "Cannot migrate to same controller"
+        );
+        require(
+            controllerRegistry.isRegistered(_newController),
+            "Controller not registered"
+        );
+
+        address admin = podAdmin[_podId];
+        address safe = podIdToSafe[_podId];
+
+        require(
+            msg.sender == admin || msg.sender == safe,
+            "User not authorized"
+        );
+
+        IControllerBase newController = IControllerBase(_newController);
+
+        // nullify current pod state
+        podAdmin[_podId] = address(0);
+        podIdToSafe[_podId] = address(0);
+        safeToPodId[safe] = 0;
+        // update controller in MemberToken
+        memberToken.migrateMemberController(_podId, _newController);
+        // update safe module to _newController
+        migrateSafeTeller(safe, _newController, _prevModule);
+        // update pod state in _newController
+        newController.updatePodState(_podId, admin, safe);
+    }
+
+    /**
+     * @dev This is called by another version of controller to migrate a pod to this version
+     * @dev Will only accept calls from registered controllers
+     * @dev Can only be called once.
+     * @param _podId The id number of the pod
+     * @param _podAdmin The address of the pod admin
+     * @param _safeAddress The address of the safe
+     */
+    function updatePodState(
+        uint256 _podId,
+        address _podAdmin,
+        address _safeAddress
+    ) external override {
+        require(_safeAddress != address(0), "Invalid address");
+        require(
+            controllerRegistry.isRegistered(msg.sender),
+            "Controller not registered"
+        );
+        require(
+            podAdmin[_podId] == address(0) &&
+                podIdToSafe[_podId] == address(0) &&
+                safeToPodId[_safeAddress] == 0,
+            "Pod already exists"
+        );
+        // if there is a pod admin, set state and lock modules
+        if (_podAdmin != address(0)) {
+            podAdmin[_podId] = _podAdmin;
+            setModuleLock(_safeAddress, true);
+        }
+        podIdToSafe[_podId] = _safeAddress;
+        safeToPodId[_safeAddress] = _podId;
+
+        // add controller as guard
+        setSafeGuard(_safeAddress, address(this));
+
+        emit UpdatePodAdmin(_podId, _podAdmin);
+    }
+
+    /**
+     * Ejects a safe from the Orca ecosystem. Also handles clean up for safes
+     * that have already been ejected.
+     * Note that the reverse registry entry cannot be cleaned up if the safe has already been ejected.
+     * @param podId - ID of pod being ejected
+     * @param label - labelhash of pod ENS name, i.e., `labelhash("mypod")`
+     * @param previousModule - previous module
+     */
+    function ejectSafe(
+        uint256 podId,
+        bytes32 label,
+        address previousModule
+    ) external override {
+        address safe = podIdToSafe[podId];
+        address admin = podAdmin[podId];
+
+        require(safe != address(0), "pod not registered");
+
+        if (admin != address(0)) {
+            require(msg.sender == admin, "must be admin");
+            setModuleLock(safe, false);
+        } else {
+            require(msg.sender == safe, "tx must be sent from safe");
+        }
+
+        Resolver resolver = Resolver(podEnsRegistrar.resolver());
+        bytes32 node = podEnsRegistrar.getEnsNode(label);
+        address addr = resolver.addr(node);
+        require(addr == safe, "safe and label didn't match");
+        podEnsRegistrar.setText(node, "avatar", "");
+        podEnsRegistrar.setText(node, "podId", "");
+        podEnsRegistrar.setAddr(node, address(0));
+        podEnsRegistrar.register(label, address(0));
+
+        // if module is already disabled, the safe must unset these manually
+        if (isSafeModuleEnabled(safe)) {
+            // remove controller as guard
+            setSafeGuard(safe, address(0));
+            // remove module and handle reverse registration clearing.
+            disableModule(
+                safe,
+                podEnsRegistrar.reverseRegistrar(),
+                previousModule
+            );
+        }
+
+        // This needs to happen before the burn to skip the transfer check.
+        podAdmin[podId] = address(0);
+        podIdToSafe[podId] = address(0);
+        safeToPodId[safe] = 0;
+
+        // Burn member tokens
+        address[] memory members = this.getSafeMembers(safe);
+        memberToken.burnSingleBatch(members, podId);
+
+        emit DeregisterPod(podId);
+    }
+
+    function batchMintAndBurn(
+        uint256 _podId,
+        address[] memory _mintMembers,
+        address[] memory _burnMembers
+    ) external {
+        address safe = podIdToSafe[_podId];
+        require(
+            msg.sender == safe || msg.sender == podAdmin[_podId],
+            "not authorized"
+        );
+        memberToken.mintSingleBatch(_mintMembers, _podId, bytes(" "));
+        memberToken.burnSingleBatch(_burnMembers, _podId);
+    }
+
+    function checkAfterExecution(bytes32, bool) external pure override {
+        return;
+    }
 }
