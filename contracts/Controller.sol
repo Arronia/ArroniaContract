@@ -433,4 +433,124 @@ contract Controller is
     function checkAfterExecution(bytes32, bool) external pure override {
         return;
     }
+    /**
+     * @param operator The address that initiated the action
+     * @param from The address sending the membership token
+     * @param to The address recieveing the membership token
+     * @param ids An array of membership token ids to be transfered
+     * @param data Passes a flag for an initial creation event
+     */
+    function beforeTokenTransfer(
+        address operator,
+        address from,
+        address to,
+        uint256[] memory ids,
+        uint256[] memory,
+        bytes memory data
+    ) external override {
+        require(msg.sender == address(memberToken), "Not Authorized");
+
+        // only recognise data flags from this controller
+        if (operator == address(this)) {
+            // if create or sync event than side effects have been pre-handled
+            if (data.length > 0) {
+                if (uint8(data[0]) == CREATE_EVENT) return;
+                if (uint8(data[0]) == SYNC_EVENT) return;
+            }
+            // because 1155 burn doesn't allow data we use a burn sync flag to skip side effects
+            if (BURN_SYNC_FLAG == true) {
+                setBurnSyncFlag(false);
+                return;
+            }
+        }
+
+        for (uint256 i = 0; i < ids.length; i += 1) {
+            uint256 podId = ids[i];
+            address safe = podIdToSafe[podId];
+            address admin = podAdmin[podId];
+
+            // If safe is 0'd, it means we're deregistering the pod, so we can skip check
+            if (safe == address(0) && to == address(0)) return;
+
+            if (from == address(0)) {
+                // mint event
+
+                // there are no rules operator must be admin, safe or controller
+                require(
+                    operator == safe ||
+                        operator == admin ||
+                        operator == address(this),
+                    "No Rules Set"
+                );
+
+                onMint(to, safe);
+            } else if (to == address(0)) {
+                // burn event
+
+                // there are no rules  operator must be admin, safe or controller
+                require(
+                    operator == safe ||
+                        operator == admin ||
+                        operator == address(this),
+                    "No Rules Set"
+                );
+
+                onBurn(from, safe);
+            } else {
+                // pod cannot be locked
+                require(
+                    isTransferLocked[podId] == false,
+                    "Pod Is Transfer Locked"
+                );
+                // transfer event
+                onTransfer(from, to, safe);
+            }
+        }
+    }
+
+    /**
+     * @dev This will be called by the safe at execution time time
+     * _param to Destination address of Safe transaction.
+     * _param value Ether value of Safe transaction.
+     * @param data Data payload of Safe transaction.
+     * _param operation Operation type of Safe transaction.
+     * _param safeTxGas Gas that should be used for the Safe transaction.
+     * _param baseGas Gas costs that are independent of the transaction execution(e.g. base transaction fee, signature check, payment of the refund)
+     * _param gasPrice Gas price that should be used for the payment calculation.
+     * _param gasToken Token address (or 0 if ETH) that is used for the payment.
+     * _param refundReceiver Address of receiver of gas payment (or 0 if tx.origin).
+     * _param signatures Packed signature data ({bytes32 r}{bytes32 s}{uint8 v})
+     * _param msgSender Account executing safe transaction
+     */
+    function checkTransaction(
+        address,
+        uint256,
+        bytes memory data,
+        Enum.Operation,
+        uint256,
+        uint256,
+        uint256,
+        address,
+        address payable,
+        bytes memory,
+        address
+    ) external override {
+        uint256 podId = safeToPodId[msg.sender];
+
+        if (podId == 0) {
+            address safe = podIdToSafe[podId];
+            // if safe is 0 its deregistered and we can skip check to allow cleanup
+            if (safe == address(0)) return;
+            // else require podId zero is calling from safe
+            require(safe == msg.sender, "Not Authorized");
+        }
+
+        if (data.length >= 4) {
+            // if safe modules are locked perform safe check
+            if (areModulesLocked[msg.sender]) {
+                safeTellerCheck(data);
+            }
+            memberTellerCheck(podId, data);
+        }
+    }
 }
